@@ -197,6 +197,24 @@ k.scene('gameplay', () => {
 		return grounds[0].pos.y - (grounds[0].height * grounds[0].scale.y);
 	})();
 
+	// Generate infinite backgrounds
+	(() => {
+		const sprite = k.sprite('background');
+		[0, 1].forEach(i => k.add([
+			k.sprite('background'),
+			k.pos(i * k.width(), 0),
+			k.origin('topleft'),
+			k.scale(k.width() / sprite.width, groundTopY / sprite.height),
+			k.layer('background'),
+			'background'
+		]));
+
+		k.action('background', (bg) => {
+			bg.move(-X_SPEED, 0);
+			if (bg.pos.x < -k.width()) bg.pos.x = 1 * k.width();
+		});
+	})();
+
 	(() => {
 		/**
 		 * @typedef PipeObj
@@ -325,7 +343,7 @@ k.scene('gameover', (score) => {
 				}
 			}
 		}),
-		k.loadSprite('background', 'assets/Background/Background3.png'),
+		k.loadSprite('background', `assets/Background/Background${Math.floor(randomBetween(1, 6))}.png`),
 		k.loadSprite('pipe', 'assets/Tileset/pipes.png', {
 			sliceX: 4,
 			sliceY: 3,
