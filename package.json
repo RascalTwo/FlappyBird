@@ -1,0 +1,14 @@
+{
+  "name": "p2m1",
+  "version": "1.0.0",
+  "main": "script.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "kaboom": "^0.5.1"
+  },
+  "description": ""
+}
