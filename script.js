@@ -74,6 +74,8 @@ k.scene('gameplay', () => {
 
 	/** Score UI component */
 	const score = (() => {
+		const origHighScore = highScore.get();
+
 		let score = 0;
 		/** Generate text for UI component */
 		const generateText = () => `${score}/${highScore.get()}`
@@ -93,7 +95,9 @@ k.scene('gameplay', () => {
 				score++;
 				if (score > highScore.get()) highScore.set(score);
 				text.text = generateText();
-			}
+			},
+			/** Return if the current score is greater then the starting high score */
+			isNewHighScore: () => score > origHighScore
 		}
 	})();
 
@@ -117,7 +121,7 @@ k.scene('gameplay', () => {
 		k.mouseClick(jump);
 
 		// Collision events
-		const endGame = () => k.go('gameover', score.get())
+		const endGame = () => k.go('gameover', score.get(), score.isNewHighScore())
 		player.collides('ground', endGame);
 		player.collides('pipe', endGame)
 
@@ -325,9 +329,9 @@ k.scene('gameplay', () => {
 
 // Gameover scene, just show the current and high score, allowing the
 // game to be resumed with click/space input
-k.scene('gameover', (score) => {
+k.scene('gameover', (score, isNewHighScore) => {
 	k.add([
-		k.text(`Current Score: ${score.toString().padStart(3, '0')}\nHigh Score   : ${highScore.get().toString().padStart(3, '0')}`, k.width() / 50),
+		k.text(`Current Score: ${score.toString().padStart(3, '0')}\nHigh Score   : ${highScore.get().toString().padStart(3, '0')}\n${isNewHighScore ? "It's a new High Score!" : ""}`, k.width() / 50),
 		k.pos(k.width()/2, k.height()/2),
 		k.origin('center')
 	]);
