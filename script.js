@@ -1,31 +1,42 @@
 import kaboom from "https://kaboomjs.com/lib/0.5.1/kaboom.mjs";
 
+/** Types of ground */
 const GROUND_TYPES = ['grass', 'snow'];
+/** Colors of Pipes */
 const PIPE_COLORS = ['red', 'yellow', 'green', 'blue'];
-
-const CANVAS = document.querySelector('canvas');
 
 /** @type {import('kaboom').KaboomCtx} */
 const k = kaboom({
-	canvas: CANVAS,
+	canvas: document.querySelector('canvas'),
 	width: window.innerWidth,
 	height: window.innerHeight - 25,
 	clearColor: [0, 0, 0, 0.90]
 });
 
+/** localStorage-based high score */
 const highScore = (() => {
 	let highScore = Number(window.localStorage.getItem('high-score') || '0');
 	return {
+		/**
+		 * Set high score to {@link score}
+		 *
+		 * @param {number} score
+		 */
 		set: (score) => {
 			highScore = score;
 			window.localStorage.setItem('high-score', score)
 		},
+		/**
+		 * Get current {@link highScore}
+		 *
+		 * @returns {number}
+		 */
 		get: () => highScore
 	}
 })();
 
 /**
- * Generate random float between two numbers
+ * Generate random float between {@link min} and {@link max}
  *
  * @param {number} min
  * @param {number} max
@@ -34,18 +45,24 @@ const highScore = (() => {
  const randomBetween = (min, max) => Math.random() * (max - min) + min;
 
 /**
-	* Choose random element from array
-	*
-	* @param {any[]} arr
-	* @returns {any}
-	*/
+ * Choose random element from {@link arr array}
+ *
+ * @template T
+ * @param {T[]} arr
+ * @returns {T}
+ */
 const randomFrom = arr => arr[Math.floor(randomBetween(0, arr.length))];
 
 k.scene('gameplay', () => {
+	/** Scale of all sprites */
 	const SPRITE_SCALE = 3;
+	/** Horizontal speed of spites */
 	const X_SPEED = k.width() / 5;
+	/** Scale of pipes, less then sprite scale */
 	const PIPE_SCALE = SPRITE_SCALE / 2;
+	/** Diameter of opening for player to fly through */
 	const OPENING_DIAMETER = k.height() / 3.5;
+	/** Vertical distance gained when jumping */
 	const JUMP_POWER = OPENING_DIAMETER * 1.5;
 
 
@@ -55,26 +72,34 @@ k.scene('gameplay', () => {
 		'ui'
 	], 'entities');
 
+	/** Score UI component */
 	const score = (() => {
 		let score = 0;
+		/** Generate text for UI component */
 		const generateText = () => `${score}/${highScore.get()}`
+		/** @type {import("kaboom").GameObj & import("kaboom").PosComp & import("kaboom").TextComp & import("kaboom").LayerComp} */
 		const text = k.add([
+			// Top-left corner
 			k.pos(k.width() / 50, k.height() / 50),
 			k.text(generateText(), 32),
-			k.layer("ui"),
+			k.layer('ui'),
 		]);
 
 		return {
+			/** Get {@link score} */
 			get: () => score,
+			/** Increment {@link score} and {@link highScore} if applicable */
 			increment: () => {
 				score++;
-				text.text = generateText();
 				if (score > highScore.get()) highScore.set(score);
+				text.text = generateText();
 			}
 		}
 	})();
 
+	/** Player entity */
 	const player = (() => {
+		/** @type {import("kaboom").GameObj & import("kaboom").SpriteComp & import("kaboom").ScaleComp & import("kaboom").OriginComp & import("kaboom").PosComp & import("kaboom").BodyComp & import("kaboom").RotateComp & import("kaboom").LayerComp} */
 		const player = k.add([
 			k.sprite('bird'),
 			k.scale(SPRITE_SCALE),
@@ -85,70 +110,86 @@ k.scene('gameplay', () => {
 			k.layer('entities')
 		])
 		player.play('flap');
-		const jump = () => {
-			player.jump(JUMP_POWER);
-		}
 
-		k.keyPress('space', () => {
-			jump();
-		});
-		k.mouseClick(() => {
-			jump();
-		});
+		/** Jump by {@link JUMP_POWER} */
+		const jump = () => player.jump(JUMP_POWER);
+		k.keyPress('space', jump);
+		k.mouseClick(jump);
 
-		player.collides('ground', () => {
-			k.go('gameover', score.get())
-		});
+		// Collision events
+		const endGame = () => k.go('gameover', score.get())
+		player.collides('ground', endGame);
+		player.collides('pipe', endGame)
 
-		player.collides('pipe', () => {
-			k.go('gameover', score.get())
-		})
-
+		// Rotate player when jumping/falling
 		let lastY = player.pos.y;
 		player.on('update', () => {
 			const y = player.pos.y
-			if (Math.abs(lastY - y) < 5) player.angle = 0
-			else if (lastY < y) player.angle = -3.14/6;
-			else player.angle = 3.14/6;
+			// If change is little, no angle, otherwise angle down or up
+			if (Math.abs(lastY - y) < k.height() / 500) player.angle = 0
+			else player.angle = (-3.14/6) * (lastY > y ? -1 : 1);
 			lastY = y;
 
-			if (y <= 0) k.go('gameover', score.get());
+			// Disallow flying over pipes
+			if (y <= 0) endGame();
 		});
 
 		return player;
 	})();
 
+	/** Y position of top of ground */
 	const groundTopY = (() => {
-		let nthPipe = 0;
+		/**
+		 * @typedef GroundObj
+		 * @type {import("kaboom").GameObj & import("kaboom").SpriteComp & import("kaboom").ScaleComp & import("kaboom").PosComp & import("kaboom").OriginComp & import("kaboom").LayerComp & { type: string, variation: number}}
+		 */
+		/** @type {GroundObj[]} */
 		const grounds = [];
+
+		/**
+		 * Generate next ground tile of {@link type} after {@link lastGround}
+		 *
+		 * @param {GroundObj | null} lastGround
+		 * @param {'grass' | 'snow'} type
+		 */
 		const generateNextGround = (lastGround, type) => {
-			const x = lastGround ? lastGround.pos.x + (lastGround.width * lastGround.scale.x) : 0
-			const possibleVariations = lastGround ? [Math.max(0, lastGround.variation - 1), Math.min(3, lastGround.variation + 1)] : [0, 1, 2, 3]
-			grounds.push(addGround(type, randomFrom(possibleVariations), x))
-		}
-		const addGround = (type, variation, x) => {
-			const tile = k.add([
+			// X either leftmost or after the last ground
+			const x = lastGround
+				? lastGround.pos.x + (lastGround.width * lastGround.scale.x)
+				: 0;
+
+			// Variation number, must be only one variation different from the current variation
+			const possibleVariations = lastGround
+				? [Math.max(0, lastGround.variation - 1), Math.min(3, lastGround.variation + 1)]
+				: [0, 1, 2, 3];
+			const variation = randomFrom(possibleVariations);
+
+			/** @type {GroundObj} */
+			const ground = k.add([
 				k.sprite('ground'),
 				k.scale(SPRITE_SCALE),
 				k.pos(x, k.height()),
 				k.origin('botleft'),
-				k.solid(),
 				k.layer('entities'),
 				'ground',
 				{ type, variation }
 			])
-			tile.play(`${type}${variation}`)
-			return tile;
+			ground.play(`${type}${variation}`);
+			grounds.push(ground);
 		}
+
+		// Fill up empty ground with all sprites
 		while (true){
 			const lastGround = grounds.slice(-1)[0];
 			generateNextGround(lastGround, GROUND_TYPES[0]);
 			if (lastGround && lastGround.pos.x > k.width()) break;
 		}
 
+		// Move grounds left, and remove/readd them when neccessary.
 		k.action('ground', (ground) => {
 			ground.move(-X_SPEED, 0);
 			if (ground.pos.x + (ground.width * ground.scale.x) >= 0) return;
+			// TODO - reuse instead of destroying and recreating
 			k.destroy(grounds.shift());
 			generateNextGround(grounds.slice(-1)[0], GROUND_TYPES[0]);
 		});
@@ -157,6 +198,14 @@ k.scene('gameplay', () => {
 	})();
 
 	(() => {
+		/**
+		 * @typedef PipeObj
+		 * @type {import("kaboom").SpriteComp & import("kaboom").GameObj & import("kaboom").ScaleComp & import("kaboom").OriginComp & import("kaboom").PosComp & import("kaboom").LayerComp}
+		 */
+		/**
+		 * @typedef PipeDetectorObj
+		 * @type {PipeObj & { color: string, passed: boolean }}
+		 */
 		const { MIN_Y, MAX_Y, WIDTH } = (() => {
 			const piece = k.sprite('pipe');
 			const MIN_Y = piece.height * PIPE_SCALE;
@@ -164,11 +213,11 @@ k.scene('gameplay', () => {
 			return { MIN_Y, MAX_Y, WIDTH: piece.width * PIPE_SCALE }
 		})();
 
+		/** @type {[PipeObj, PipeObj, PipeObj, PipeObj, PipeDetectorObj]} */
 		const pipes = [];
-
 		const addPipe = (color, x, y) => {
 			const topY = Math.max(MIN_Y, y - OPENING_DIAMETER/2);
-			const middleTop = k.add([
+			const baseTop = k.add([
 				k.sprite('pipe'),
 				k.scale(PIPE_SCALE, (MIN_Y + topY - (MIN_Y * 2)) * 0.05),
 				k.origin('top'),
@@ -176,7 +225,7 @@ k.scene('gameplay', () => {
 				k.layer('entities'),
 				'pipe'
 			]);
-			middleTop.play(`${color}Middle`);
+			baseTop.play(`${color}Middle`);
 
 			const top = k.add([
 				k.sprite('pipe'),
@@ -190,7 +239,7 @@ k.scene('gameplay', () => {
 
 
 			const bottomY = Math.min(MAX_Y, y + OPENING_DIAMETER/2);
-			const middleBottom = k.add([
+			const baseBottom = k.add([
 				k.sprite('pipe'),
 				k.scale(PIPE_SCALE, (MAX_Y-bottomY) * 0.05),
 				k.origin('bot'),
@@ -198,7 +247,7 @@ k.scene('gameplay', () => {
 				k.layer('entities'),
 				'pipe'
 			]);
-			middleBottom.play(`${color}Middle`);
+			baseBottom.play(`${color}Middle`);
 
 			const bottom = k.add([
 				k.sprite('pipe'),
@@ -219,13 +268,15 @@ k.scene('gameplay', () => {
 				{ color, passed: false }
 			])
 
-			pipes.push([middleTop, top, middleBottom, bottom, detector]);
+			pipes.push([baseTop, top, baseBottom, bottom, detector]);
 		}
 
+		// Move all pipes to the left
 		k.action('pipe', (pipe) => {
 			pipe.move(-X_SPEED, 0);
 		});
 
+		// Increment scre when passing pipes, and cleanup pipes
 		k.action('pipe-detector', pipe => {
 			const x = pipe.pos.x + (WIDTH * PIPE_SCALE/2);
 			if (!pipe.passed && x < player.pos.x) {
@@ -233,18 +284,24 @@ k.scene('gameplay', () => {
 				score.increment()
 				return;
 			}
-			if (!pipe.passed || x >= 0) return;
-			pipes.shift().forEach(part => k.destroy(part));
-			const lastPipeColor = pipes.slice(-1)[0].find(part => part.color).color;
-			addPipe(randomFrom(PIPE_COLORS.filter(color => color !== lastPipeColor)), k.width()*1.25, randomBetween(MIN_Y + OPENING_DIAMETER/3, MAX_Y - OPENING_DIAMETER/3))
+			if (pipe.passed && x < 0) pipes.shift().forEach(part => k.destroy(part));
 		});
 
-		[1, 1.3333333333333333, 1.6666666666666666, 2].forEach((dist, i) => {
-			addPipe(PIPE_COLORS[i % PIPE_COLORS.length], k.width() * dist, randomBetween(MIN_Y + OPENING_DIAMETER/3, MAX_Y - OPENING_DIAMETER/3))
-		});
+		// Spawn a pipe every 2 seconds
+		k.loop(2, () => {
+			// Color of last pipe, to prevent duplicate colored pipes
+			const lastPipeColor = (pipes.slice(-1)[0] || [{ color: 1 }]).find(part => part.color).color;
+			addPipe(
+				randomFrom(PIPE_COLORS.filter(color => color !== lastPipeColor)),
+				k.width() * 1.1,
+				randomBetween(MIN_Y + OPENING_DIAMETER / 3, MAX_Y - OPENING_DIAMETER / 3)
+			)
+		})
 	})();
 });
 
+// Gameover scene, just show the current and high score, allowing the
+// game to be resumed with click/space input
 k.scene('gameover', (score) => {
 	k.add([
 		k.text(`Current Score: ${score.toString().padStart(3, '0')}\nHigh Score   : ${highScore.get().toString().padStart(3, '0')}`, k.width() / 50),
@@ -258,7 +315,7 @@ k.scene('gameover', (score) => {
 
 (async () => {
 	await Promise.all([
-		k.loadSprite('bird', 'assets/Player/bird1.png', {
+		k.loadSprite('bird', `assets/Player/bird${Math.floor(randomBetween(1, 4))}.png`, {
 			sliceX: 4,
 			sliceY: 1,
 			anims: {
@@ -272,19 +329,25 @@ k.scene('gameover', (score) => {
 		k.loadSprite('pipe', 'assets/Tileset/pipes.png', {
 			sliceX: 4,
 			sliceY: 3,
-			anims: [PIPE_COLORS].map(colors => [colors, colors, colors].flat()).flat().reduce((obj, color, i) => {
-				const part = ['Top', 'Middle', 'Bottom'][Math.floor(i / 4)];
-				obj[`${color}${part}`] = { from: i, to: i }
-				return obj
-			}, {})
+			anims: [PIPE_COLORS]
+				.map(colors => [colors, colors, colors].flat())
+				.flat()
+				.reduce((obj, color, i) => ({
+					...obj,
+					[`${color}${['Top', 'Middle', 'Bottom'][Math.floor(i / 4)]}`]: { from: i, to: i }
+				}), {})
 		}),
 		k.loadSprite('ground', 'assets/Tileset/ground.png', {
 			sliceX: 8,
 			sliceY: 1,
-			anims: [GROUND_TYPES].map(type => [type, type, type, type].flat()).flat().sort().reduce((obj, type, i) => {
-				obj[`${type}${i % 4}`] = { from: i, to: i }
-				return obj;
-			}, {})
+			anims: [GROUND_TYPES]
+				.map(type => [type, type, type, type].flat())
+				.flat()
+				.sort()
+				.reduce((obj, type, i) => ({
+					...obj,
+					[`${type}${i % 4}`]: { from: i, to: i }
+				}), {})
 		}),
 	]);
 	k.start('gameplay');
