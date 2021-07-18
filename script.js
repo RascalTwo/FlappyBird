@@ -137,6 +137,8 @@ k.scene('gameplay', () => {
 		return player;
 	})();
 
+	let spawnedPipes = 0;
+
 	/** Y position of top of ground */
 	const groundTopY = (() => {
 		/**
@@ -145,6 +147,7 @@ k.scene('gameplay', () => {
 		 */
 		/** @type {GroundObj[]} */
 		const grounds = [];
+		let typeIndex = 0;
 
 		/**
 		 * Generate next ground tile of {@link type} after {@link lastGround}
@@ -181,7 +184,7 @@ k.scene('gameplay', () => {
 		// Fill up empty ground with all sprites
 		while (true){
 			const lastGround = grounds.slice(-1)[0];
-			generateNextGround(lastGround, GROUND_TYPES[0]);
+			generateNextGround(lastGround, GROUND_TYPES[typeIndex]);
 			if (lastGround && lastGround.pos.x > k.width()) break;
 		}
 
@@ -191,7 +194,8 @@ k.scene('gameplay', () => {
 			if (ground.pos.x + (ground.width * ground.scale.x) >= 0) return;
 			// TODO - reuse instead of destroying and recreating
 			k.destroy(grounds.shift());
-			generateNextGround(grounds.slice(-1)[0], GROUND_TYPES[0]);
+			if (!typeIndex && spawnedPipes >= highScore.get()) typeIndex = 1;
+			generateNextGround(grounds.slice(-1)[0], GROUND_TYPES[typeIndex]);
 		});
 
 		return grounds[0].pos.y - (grounds[0].height * grounds[0].scale.y);
@@ -287,6 +291,7 @@ k.scene('gameplay', () => {
 			])
 
 			pipes.push([baseTop, top, baseBottom, bottom, detector]);
+			spawnedPipes++;
 		}
 
 		// Move all pipes to the left
