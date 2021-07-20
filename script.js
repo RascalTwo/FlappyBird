@@ -53,7 +53,7 @@ const highScore = (() => {
  */
 const randomFrom = arr => arr[Math.floor(randomBetween(0, arr.length))];
 
-k.scene('gameplay', () => {
+k.scene('gameplay', (events) => {
 	/** Scale of all sprites */
 	const SPRITE_SCALE = 3;
 	/** Horizontal speed of spites */
@@ -65,6 +65,13 @@ k.scene('gameplay', () => {
 	/** Vertical distance gained when jumping */
 	const JUMP_POWER = OPENING_DIAMETER * 1.5;
 
+	/** Array of game events, to allow for replaying */
+	const history = [{
+		action: 'init',
+		when: k.time(),
+		width: k.width(),
+		height: k.height(),
+	}]
 
 	k.layers([
 		'background',
@@ -103,6 +110,8 @@ k.scene('gameplay', () => {
 
 	/** Player entity */
 	const player = (() => {
+		const spawned = k.time();
+
 		/** @type {import("kaboom").GameObj & import("kaboom").SpriteComp & import("kaboom").ScaleComp & import("kaboom").OriginComp & import("kaboom").PosComp & import("kaboom").BodyComp & import("kaboom").RotateComp & import("kaboom").LayerComp} */
 		const player = k.add([
 			k.sprite('bird'),
@@ -113,15 +122,44 @@ k.scene('gameplay', () => {
 			k.rotate(0),
 			k.layer('entities')
 		])
+		history.push({
+			action: 'player-ready',
+			when: spawned,
+			pos: {
+				x: player.pos.x,
+				y: player.pos.y
+			}
+		});
 		player.play('flap');
 
 		/** Jump by {@link JUMP_POWER} */
-		const jump = () => player.jump(JUMP_POWER);
+		const jump = () => {
+			history.push({
+				action: 'jump',
+				when: k.time(),
+				pos: {
+					x: player.pos.x,
+					y: player.pos.y
+				}
+			});
+			player.jump(JUMP_POWER)
+		};
 		k.keyPress('space', jump);
 		k.mouseClick(jump);
 
+		if (events) {
+			const jumpOffset = events.find(({ action }) => action === 'player-ready').when
+			events
+				.filter(event => event.action === 'jump')
+				.forEach(event => k.wait(event.when - jumpOffset, () => {
+					player.pos.x = event.pos.x;
+					player.pos.y = event.pos.y;
+					jump();
+				}));
+		}
+
 		// Collision events
-		const endGame = () => k.go('gameover', score.get(), score.isNewHighScore())
+		const endGame = () => k.go('gameover', score.get(), score.isNewHighScore(), history)
 		player.collides('ground', endGame);
 		player.collides('pipe', endGame)
 
@@ -242,6 +280,12 @@ k.scene('gameplay', () => {
 		/** @type {[PipeObj, PipeObj, PipeObj, PipeObj, PipeDetectorObj]} */
 		const pipes = [];
 		const addPipe = (color, x, y) => {
+			history.push({
+				action: 'spawn-pipe',
+				when: k.time(),
+				pos: { x, y }
+			});
+
 			const topY = Math.max(MIN_Y, y - OPENING_DIAMETER/2);
 			const baseTop = k.add([
 				k.sprite('pipe'),
@@ -315,28 +359,52 @@ k.scene('gameplay', () => {
 		});
 
 		// Spawn a pipe every 2 seconds
+		const pipeYs = (events || [])
+			.filter(event => event.action === 'spawn-pipe')
+			.map(({ pos: { y }}) => y).reverse()
+
 		k.loop(2, () => {
 			// Color of last pipe, to prevent duplicate colored pipes
 			const lastPipeColor = (pipes.slice(-1)[0] || [{ color: 1 }]).find(part => part.color).color;
 			addPipe(
 				randomFrom(PIPE_COLORS.filter(color => color !== lastPipeColor)),
 				k.width() * 1.1,
-				randomBetween(MIN_Y + OPENING_DIAMETER / 3, MAX_Y - OPENING_DIAMETER / 3)
+				pipeYs.length ? pipeYs.pop() : randomBetween(MIN_Y + OPENING_DIAMETER / 3, MAX_Y - OPENING_DIAMETER / 3)
 			)
-		})
+		});
+
+		history.push({
+			action: 'pipes-ready',
+			when: k.time()
+		});
 	})();
 });
 
 // Gameover scene, just show the current and high score, allowing the
 // game to be resumed with click/space input
-k.scene('gameover', (score, isNewHighScore) => {
+k.scene('gameover', (score, isNewHighScore, history) => {
 	k.add([
-		k.text(`Current Score: ${score.toString().padStart(3, '0')}\nHigh Score   : ${highScore.get().toString().padStart(3, '0')}\n${isNewHighScore ? "It's a new High Score!" : ""}`, k.width() / 50),
+		k.text(`Current Score: ${score.toString().padStart(3, '0')}\nHigh Score   : ${highScore.get().toString().padStart(3, '0')}\n${isNewHighScore ? "It's a new High Score!" : ""}\n\n"s" to save just-played game\n"l" to replay saved game`, k.width() / 50),
 		k.pos(k.width()/2, k.height()/2),
 		k.origin('center')
 	]);
 	k.mouseClick(() => k.go('gameplay'))
 	k.keyDown('space', () => k.go('gameplay'))
+
+	k.keyPress('s', () => {
+		const init = history.find(event => event.action === 'init');
+		const start = init.when;
+		history.forEach(event => event.when -= start);
+		localStorage.setItem('lastGame', JSON.stringify(history))
+	});
+	k.keyPress('l', () => {
+		const response = localStorage.getItem('lastGame')
+		const history = JSON.parse(response)
+		const { width, height } = history.find(event => event.action === 'init')
+		if (k.width() !== width) return alert(`Invalid width: ${k.width()} != ${width}`);
+		if (k.height() !== height) return alert(`Invalid height: ${k.height()} != ${height}`);
+		k.go('gameplay', history);
+	});
 });
 
 
