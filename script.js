@@ -53,7 +53,7 @@ const highScore = (() => {
  */
 const randomFrom = arr => arr[Math.floor(randomBetween(0, arr.length))];
 
-k.scene('gameplay', (events) => {
+k.scene('gameplay', (playing=true, events) => {
 	/** Scale of all sprites */
 	const SPRITE_SCALE = 3;
 	/** Horizontal speed of spites */
@@ -110,73 +110,90 @@ k.scene('gameplay', (events) => {
 
 	/** Player entity */
 	const player = (() => {
-		const spawned = k.time();
 
-		/** @type {import("kaboom").GameObj & import("kaboom").SpriteComp & import("kaboom").ScaleComp & import("kaboom").OriginComp & import("kaboom").PosComp & import("kaboom").BodyComp & import("kaboom").RotateComp & import("kaboom").LayerComp} */
-		const player = k.add([
-			k.sprite('bird'),
-			k.scale(SPRITE_SCALE),
-			k.origin('center'),
-			k.pos(k.width() / 5, k.height() / 2),
-			k.body(),
-			k.rotate(0),
-			k.layer('entities')
-		])
-		history.push({
-			action: 'player-ready',
-			when: spawned,
-			pos: {
-				x: player.pos.x,
-				y: player.pos.y
-			}
+		/** @type {{ [index: number]: import("kaboom").GameObj & import("kaboom").SpriteComp & import("kaboom").ScaleComp & import("kaboom").OriginComp & import("kaboom").PosComp & import("kaboom").BodyComp & import("kaboom").RotateComp & import("kaboom").LayerComp }} */
+		const players = {}
+
+		const spawnPlayer = index => {
+			const spawned = k.time();
+			players[index] = k.add([
+				k.sprite('bird'),
+				k.scale(SPRITE_SCALE),
+				k.origin('center'),
+				k.pos(k.width() / 5, k.height() / 2),
+				k.body(),
+				k.rotate(0),
+				k.layer('entities'),
+				'player',
+				{ index: index },
+				k.color(1, 1, 1, index ? 0.5 : 1)
+			])
+			players[index].play('flap')
+			history.push({
+				action: 'player-ready',
+				when: spawned,
+				pos: {
+					x: players[index].pos.x,
+					y: players[index].pos.y
+				},
+				index
+			});
+		}
+
+		spawnPlayer(0)
+		if (events) events.forEach(event => {
+			if (event.action === 'player-ready') spawnPlayer(event.index);
 		});
-		player.play('flap');
 
 		/** Jump by {@link JUMP_POWER} */
-		const jump = () => {
+		const jump = (index=0) => {
 			history.push({
 				action: 'jump',
+				index,
 				when: k.time(),
 				pos: {
-					x: player.pos.x,
-					y: player.pos.y
+					x: players[index].pos.x,
+					y: players[index].pos.y
 				}
 			});
-			player.jump(JUMP_POWER)
+			players[index].jump(JUMP_POWER)
 		};
-		k.keyPress('space', jump);
-		k.mouseClick(jump);
+		if (playing){
+			k.keyPress('space', jump);
+			k.mouseClick(jump);
+		}
 
 		if (events) {
 			const jumpOffset = events.find(({ action }) => action === 'player-ready').when
 			events
 				.filter(event => event.action === 'jump')
 				.forEach(event => k.wait(event.when - jumpOffset, () => {
-					player.pos.x = event.pos.x;
-					player.pos.y = event.pos.y;
-					jump();
+					players[event.index].pos.x = event.pos.x;
+					players[event.index].pos.y = event.pos.y;
+					jump(event.index);
 				}));
 		}
 
 		// Collision events
 		const endGame = () => k.go('gameover', score.get(), score.isNewHighScore(), history)
-		player.collides('ground', endGame);
-		player.collides('pipe', endGame)
+		players[0].collides('ground', endGame);
+		players[0].collides('pipe', endGame)
 
 		// Rotate player when jumping/falling
-		let lastY = player.pos.y;
-		player.on('update', () => {
+		const lastYs = {}
+		k.on('update', 'player', player => {
 			const y = player.pos.y
+			const lastY = lastYs[player.index] || player.pos.y
 			// If change is little, no angle, otherwise angle down or up
 			if (Math.abs(lastY - y) < k.height() / 500) player.angle = 0
 			else player.angle = (-3.14/6) * (lastY > y ? -1 : 1);
-			lastY = y;
+			lastYs[player.index] = y;
 
 			// Disallow flying over pipes
-			if (y <= 0) endGame();
+			if (!player.index && y <= 0) endGame();
 		});
 
-		return player;
+		return players[0];
 	})();
 
 	let spawnedPipes = 0;
@@ -384,7 +401,7 @@ k.scene('gameplay', (events) => {
 // game to be resumed with click/space input
 k.scene('gameover', (score, isNewHighScore, history) => {
 	k.add([
-		k.text(`Current Score: ${score.toString().padStart(3, '0')}\nHigh Score   : ${highScore.get().toString().padStart(3, '0')}\n${isNewHighScore ? "It's a new High Score!" : ""}\n\n"s" to save just-played game\n"l" to replay saved game`, k.width() / 50),
+		k.text(`Current Score: ${score.toString().padStart(3, '0')}\nHigh Score   : ${highScore.get().toString().padStart(3, '0')}\n${isNewHighScore ? "It's a new High Score!" : ""}\n\n"s" to save just-played game\n"l" to replay saved game\n"r" to replay saved level`, k.width() / 50),
 		k.pos(k.width()/2, k.height()/2),
 		k.origin('center')
 	]);
@@ -403,7 +420,18 @@ k.scene('gameover', (score, isNewHighScore, history) => {
 		const { width, height } = history.find(event => event.action === 'init')
 		if (k.width() !== width) return alert(`Invalid width: ${k.width()} != ${width}`);
 		if (k.height() !== height) return alert(`Invalid height: ${k.height()} != ${height}`);
-		k.go('gameplay', history);
+		k.go('gameplay', false, history);
+	});
+	k.keyPress('r', () => {
+		const response = localStorage.getItem('lastGame')
+		const history = JSON.parse(response)
+		const { width, height } = history.find(event => event.action === 'init')
+		if (k.width() !== width) return alert(`Invalid width: ${k.width()} != ${width}`);
+		if (k.height() !== height) return alert(`Invalid height: ${k.height()} != ${height}`);
+		history.forEach(event => {
+			if (['jump', 'player-ready'].includes(event.action)) event.index++;
+		});
+		k.go('gameplay', true, history);
 	});
 });
 
