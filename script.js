@@ -166,10 +166,10 @@ k.scene('gameplay', (playing=true, events) => {
 		}
 
 		if (events) {
-			const jumpOffset = events.find(({ action }) => action === 'player-ready').when
+			const jumpOffsets = events.reduce((offsets, event) => (event.action !== 'player-ready' ? offsets : {...offsets, [event.index]: event.when}), {});
 			events
 				.filter(event => event.action === 'jump')
-				.forEach(event => k.wait(event.when - jumpOffset, () => {
+				.forEach(event => k.wait(event.when - jumpOffsets[event.index], () => {
 					players[event.index].pos.x = event.pos.x;
 					players[event.index].pos.y = event.pos.y;
 					jump(event.index);
@@ -404,39 +404,59 @@ k.scene('gameplay', (playing=true, events) => {
 // Gameover scene, just show the current and high score, allowing the
 // game to be resumed with click/space input
 k.scene('gameover', (score, isNewHighScore, history) => {
-	k.add([
-		k.text(`Current Score: ${score.toString().padStart(3, '0')}\nHigh Score   : ${highScore.get().toString().padStart(3, '0')}\n${isNewHighScore ? "It's a new High Score!" : ""}\n\n"s" to save just-played game\n"l" to replay saved game\n"r" to replay saved level`, k.width() / 50),
-		k.pos(k.width()/2, k.height()/2),
-		k.origin('center')
-	]);
-	k.mouseClick(() => k.go('gameplay'))
-	k.keyDown('space', () => k.go('gameplay'))
-
-	k.keyPress('s', () => {
+	(() => {
 		const init = history.find(event => event.action === 'init');
 		const start = init.when;
 		history.forEach(event => event.when -= start);
-		localStorage.setItem('lastGame', JSON.stringify(history))
-	});
-	k.keyPress('l', () => {
-		const response = localStorage.getItem('lastGame')
-		const history = JSON.parse(response)
+	})();
+
+	const playHistory = (playing, history) => {
 		const { width, height } = history.find(event => event.action === 'init')
-		if (k.width() !== width) return alert(`Invalid width: ${k.width()} != ${width}`);
-		if (k.height() !== height) return alert(`Invalid height: ${k.height()} != ${height}`);
-		k.go('gameplay', false, history);
-	});
-	k.keyPress('r', () => {
-		const response = localStorage.getItem('lastGame')
-		const history = JSON.parse(response)
-		const { width, height } = history.find(event => event.action === 'init')
-		if (k.width() !== width) return alert(`Invalid width: ${k.width()} != ${width}`);
-		if (k.height() !== height) return alert(`Invalid height: ${k.height()} != ${height}`);
-		history.forEach(event => {
+		if (k.width() !== width) return setMessage(`Invalid width: ${k.width()} != ${width}`);
+		if (k.height() !== height) return setMessage(`Invalid height: ${k.height()} != ${height}`);
+
+		if (playing) history.forEach(event => {
 			if (['jump', 'player-ready'].includes(event.action)) event.index++;
 		});
-		k.go('gameplay', true, history);
+
+		k.go('gameplay', playing, history);
+	}
+
+	k.add([
+		k.text(`Current Score: ${score.toString().padStart(3, '0')}\nHigh Score   : ${highScore.get().toString().padStart(3, '0')}\n${isNewHighScore ? "It's a new High Score!" : ""}\n\n"s" to save just-played game\n"l" to replay saved game\n"r" to replay saved level\n"i" to import level from clipboard\n"e" to export level to clipboard`, k.width() / 50),
+		k.pos(k.width()/2, k.height()/2),
+		k.origin('center')
+	]);
+
+	const setMessage = (() => {
+		const message = k.add([
+			k.text('', k.width() / 75),
+			k.pos(k.width()/2, k.height()-k.height()/25),
+			k.origin('center')
+		])
+		return (text) => {
+			message.text = text;
+		}
+	})();
+
+	k.mouseClick(() => k.go('gameplay'))
+	k.keyDown('space', () => k.go('gameplay'))
+
+	k.keyPress('e', () => {
+		navigator.clipboard.writeText(JSON.stringify(history));
+		setMessage('Game exported to clipboard!');
 	});
+	k.keyPress('i', () => navigator.clipboard.readText().then(response => {
+		localStorage.setItem('lastGame', response)
+		setMessage('Game imported from clipboard to cache!');
+	}))
+
+	k.keyPress('s', () => {
+		localStorage.setItem('lastGame', JSON.stringify(history))
+		setMessage('Game saved to cache!');
+	});
+	k.keyPress('l', () => playHistory(false, JSON.parse(localStorage.getItem('lastGame'))));
+	k.keyPress('r', () => playHistory(true, JSON.parse(localStorage.getItem('lastGame'))));
 });
 
 
