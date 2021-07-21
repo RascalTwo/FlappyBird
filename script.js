@@ -114,10 +114,11 @@ k.scene('gameplay', (playing=true, events) => {
 		/** @type {{ [index: number]: import("kaboom").GameObj & import("kaboom").SpriteComp & import("kaboom").ScaleComp & import("kaboom").OriginComp & import("kaboom").PosComp & import("kaboom").BodyComp & import("kaboom").RotateComp & import("kaboom").LayerComp }} */
 		const players = {}
 
-		const spawnPlayer = index => {
+		const spawnPlayer = (index, spriteVariation) => {
 			const spawned = k.time();
+			spriteVariation = spriteVariation || Math.floor(randomBetween(1, 4))
 			players[index] = k.add([
-				k.sprite('bird'),
+				k.sprite(`bird_${spriteVariation}`),
 				k.scale(SPRITE_SCALE),
 				k.origin('center'),
 				k.pos(k.width() / 5, k.height() / 2),
@@ -136,13 +137,14 @@ k.scene('gameplay', (playing=true, events) => {
 					x: players[index].pos.x,
 					y: players[index].pos.y
 				},
-				index
+				index,
+				spriteVariation
 			});
 		}
 
 		spawnPlayer(0)
 		if (events) events.forEach(event => {
-			if (event.action === 'player-ready') spawnPlayer(event.index);
+			if (event.action === 'player-ready') spawnPlayer(event.index, event.spriteVariation);
 		});
 
 		/** Jump by {@link JUMP_POWER} */
@@ -262,9 +264,11 @@ k.scene('gameplay', (playing=true, events) => {
 
 	// Generate infinite backgrounds
 	(() => {
-		const sprite = k.sprite('background');
+		const nth = Math.floor(randomBetween(1, 6))
+		const bgName = `background_${nth}`
+		const sprite = k.sprite(bgName);
 		[0, 1].forEach(i => k.add([
-			k.sprite('background'),
+			k.sprite(bgName),
 			k.pos(i * k.width(), 0),
 			k.origin('topleft'),
 			k.scale(k.width() / sprite.width, groundTopY / sprite.height),
@@ -438,7 +442,7 @@ k.scene('gameover', (score, isNewHighScore, history) => {
 
 (async () => {
 	await Promise.all([
-		k.loadSprite('bird', `assets/Player/bird${Math.floor(randomBetween(1, 4))}.png`, {
+		...new Array(3).fill(undefined).map((_, i) => k.loadSprite(`bird_${i + 1}`, `assets/Player/bird${i + 1}.png`, {
 			sliceX: 4,
 			sliceY: 1,
 			anims: {
@@ -447,8 +451,8 @@ k.scene('gameover', (score, isNewHighScore, history) => {
 					to: 3
 				}
 			}
-		}),
-		k.loadSprite('background', `assets/Background/Background${Math.floor(randomBetween(1, 6))}.png`),
+		})),
+		...new Array(5).fill(undefined).map((_, i) => k.loadSprite(`background_${i + 1}`, `assets/Background/Background${i + 1}.png`)),
 		k.loadSprite('pipe', 'assets/Tileset/pipes.png', {
 			sliceX: 4,
 			sliceY: 3,
