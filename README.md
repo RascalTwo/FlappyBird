@@ -2,6 +2,8 @@
 
 # Flappy Bird
 
+[![Run on Repl.it](https://repl.it/badge/github/RascalTwo/FlappyBird)](https://repl.it/github/RascalTwo/FlappyBird)
+
 Flappy Bird written in [kaboom.js][kaboom.js].
 
 https://user-images.githubusercontent.com/9403665/128610838-e544f830-d833-42b3-b37c-2006e5ffc28f.mp4
